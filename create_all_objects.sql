@@ -62,7 +62,7 @@ CREATE OR REPLACE FUNCTION Check_Limite_Posti_Disponibili()
 AS $$
 BEGIN
 	IF 1 + (
-	    SELECT numeri_biglietti_venduti
+	    SELECT numero_biglietti_venduti
 	    FROM Concerto
 	    WHERE data = NEW.data_concerto AND
 		  ora = NEW.ora_concerto AND
@@ -91,7 +91,7 @@ CREATE OR REPLACE FUNCTION Check_Diritto_Prevendita_Agenzia()
 AS $$
 BEGIN
 	IF NOT EXISTS (
-	    SELECT genere FROM Diritto_Prevendita
+	    SELECT Diritto_Prevendita.genere FROM Diritto_Prevendita
 	    JOIN Concerto ON
 		 data = NEW.data_concerto AND
 		 ora = NEW.ora_concerto AND
@@ -101,7 +101,7 @@ BEGIN
 		 cap_citta = NEW.cap_citta
 	    WHERE agenzia = NEW.venditore AND Concerto.genere = Diritto_Prevendita.genere
 	) THEN
-		RAISE EXCEPTION 'Agenzia has no pre-sale right'
+		RAISE EXCEPTION 'Agenzia has no pre-sale right';
 	END IF;
 	RETURN NEW;
 END;
@@ -118,7 +118,7 @@ BEGIN
 	WHERE nome = NEW.nome_ambiente AND
 	      indirizzo = NEW.indirizzo_ambiente AND
 	      nome_citta = NEW.nome_citta AND
-	      cap_citta = NEW.cap_citta
+	      cap_citta = NEW.cap_citta;
 	RETURN NEW;
 END;
 $$;
@@ -133,7 +133,7 @@ BEGIN
 	WHERE nome = NEW.nome_ambiente AND
 	      indirizzo = NEW.indirizzo_ambiente AND
 	      nome_citta = NEW.nome_citta AND
-	      cap_citta = NEW.cap_citta
+	      cap_citta = NEW.cap_citta;
 	RETURN OLD;
 END;
 $$;
@@ -147,19 +147,19 @@ BEGIN
 	IF NOT EXISTS (
 	    SELECT artista
 	    FROM Ingaggio_Artista
-	    WHERE data = NEW.data_concerto AND
-		  ora = NEW.ora_concerto AND
+	    WHERE data_concerto = NEW.data_concerto AND
+		  ora_concerto = NEW.ora_concerto AND
 		  nome_ambiente = NEW.nome_ambiente AND
-		  indirizzo = NEW.indirizzo_ambiente AND
+		  indirizzo_ambiente = NEW.indirizzo_ambiente AND
 		  nome_citta = NEW.nome_citta AND
 		  cap_citta = NEW.cap_citta
 	) AND NOT EXISTS (
 	    SELECT gruppo
 	    FROM Ingaggio_Gruppo
-	    WHERE data = NEW.data_concerto AND
-		  ora = NEW.ora_concerto AND
+	    WHERE data_concerto = NEW.data_concerto AND
+		  ora_concerto = NEW.ora_concerto AND
 		  nome_ambiente = NEW.nome_ambiente AND
-		  indirizzo = NEW.indirizzo_ambiente AND
+		  indirizzo_ambiente = NEW.indirizzo_ambiente AND
 		  nome_citta = NEW.nome_citta AND
 		  cap_citta = NEW.cap_citta
 	) THEN
@@ -287,9 +287,9 @@ CREATE TABLE Ingaggio_Artista (
 
 	artista VARCHAR(50) REFERENCES Artista (nome_arte) ON UPDATE CASCADE ON DELETE RESTRICT,
 
-	UNIQUE (data_concerto, artista)
+	UNIQUE (data_concerto, artista),
 
-	PRIMARY KEY (data_vendita, data_concerto, ora_concerto, nome_ambiente, indirizzo_ambiente, nome_citta, cap_citta, artista),
+	PRIMARY KEY (data_concerto, ora_concerto, nome_ambiente, indirizzo_ambiente, nome_citta, cap_citta, artista),
 
 	FOREIGN KEY (
 		data_concerto,
@@ -319,9 +319,9 @@ CREATE TABLE Ingaggio_Gruppo (
 
 	gruppo VARCHAR(50) REFERENCES Gruppo (nome_arte) ON UPDATE CASCADE ON DELETE RESTRICT,
 
-	UNIQUE (data_concerto, gruppo)
+	UNIQUE (data_concerto, gruppo),
 
-	PRIMARY KEY (data_vendita, data_concerto, ora_concerto, nome_ambiente, indirizzo_ambiente, nome_citta, cap_citta, gruppo),
+	PRIMARY KEY (data_concerto, ora_concerto, nome_ambiente, indirizzo_ambiente, nome_citta, cap_citta, gruppo),
 
 	FOREIGN KEY (
 		data_concerto,
