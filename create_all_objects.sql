@@ -2,11 +2,13 @@ CREATE DATABASE ProgettoBasiDiDati;
 
 -- TODO
 --	- Vincolo per ciclo???
---	- Vincolo almeno un ingaggio per concerto --> altrimenti non può esistere
---	- Vincolo uno stesso artista/gruppo può partecipare al più ad un concerto 
+--	- DONE - Vincolo almeno un ingaggio per concerto --> altrimenti non può esistere
+--	- DONE - Vincolo uno stesso artista/gruppo può partecipare al più ad un concerto nella stessa data
 --	- CHECK - Vincolo diritto prevendita --> storico? Come mantengo l'informazione che in passato un agenzia aveva un diritto che oggi non ha più
---	- CHECK - Decidere gestione attributo derivato (numero posti venduti)
---	- Partizionamento della tabella Biglietto in base ad Agenzia
+--			A logica non dovrebbe mai capitare, comunque 		GUARDARE AVANTI
+-- 	- fare trigger per edge cases (update di concerto) (anche relativo al ciclo) genere, ambiente
+--	- DONE - Decidere gestione attributo derivato (numero posti venduti)
+--	- REJECTED - Partizionamento della tabella Biglietto in base ad Agenzia
 --
 
 -- DOMANDE
@@ -46,15 +48,15 @@ CREATE OR REPLACE FUNCTION Delete_Zombie_Persona()
 	LANGUAGE PLPGSQL
 AS $$
 BEGIN
-	IF NOT EXISTS (SELECT 1 FROM Biglietto WHERE proprietario = NEW.proprietario) THEN
-		DELETE FROM Persona WHERE CF = NEW.proprietario;
+	IF NOT EXISTS (SELECT 1 FROM Biglietto WHERE proprietario = OLD.proprietario) THEN
+		DELETE FROM Persona WHERE CF = OLD.proprietario;
 	END IF;
-	RETURN NEW;
+	RETURN OLD;
 END;
 $$;
 
 	-- per trigger - limite posti disponibili
-CREATE OR REPLACE FUNCTION Check_Limite_Posti_Drisponibili()
+CREATE OR REPLACE FUNCTION Check_Limite_Posti_Disponibili()
 	RETURNS TRIGGER
 	LANGUAGE PLPGSQL
 AS $$
@@ -62,7 +64,8 @@ BEGIN
 	IF 1 + (
 	    SELECT numeri_biglietti_venduti
 	    FROM Concerto
-	    WHERE data_ora = NEW.data_ora_concerto AND
+	    WHERE data = NEW.data_concerto AND
+		  ora = NEW.ora_concerto AND
 		  nome_ambiente = NEW.nome_ambiente AND
 		  indirizzo = NEW.indirizzo_ambiente AND
 		  nome_citta = NEW.nome_citta AND
@@ -88,15 +91,15 @@ CREATE OR REPLACE FUNCTION Check_Diritto_Prevendita_Agenzia()
 AS $$
 BEGIN
 	IF NOT EXISTS (
-	    SELECT genere FROM NEW
-	    JOIN Diritto_Prevendita ON agenzia = NEW.venditore
+	    SELECT genere FROM Diritto_Prevendita
 	    JOIN Concerto ON
-		data_ora = NEW.data_ora_concerto AND
-		nome_ambiente = NEW.nome_ambiente AND
-		indirizzo = NEW.indirizzo_ambiente AND
-		nome_citta = NEW.nome_citta AND
-		cap_citta = NEW.cap_citta
-	    WHERE Concerto.genere = Diritto_Prevendita.genere
+		 data = NEW.data_concerto AND
+		 ora = NEW.ora_concerto AND
+		 nome_ambiente = NEW.nome_ambiente AND
+		 indirizzo = NEW.indirizzo_ambiente AND
+		 nome_citta = NEW.nome_citta AND
+		 cap_citta = NEW.cap_citta
+	    WHERE agenzia = NEW.venditore AND Concerto.genere = Diritto_Prevendita.genere
 	) THEN
 		RAISE EXCEPTION 'Agenzia has no pre-sale right'
 	END IF;
@@ -131,10 +134,40 @@ BEGIN
 	      indirizzo = NEW.indirizzo_ambiente AND
 	      nome_citta = NEW.nome_citta AND
 	      cap_citta = NEW.cap_citta
-	RETURN NEW;
+	RETURN OLD;
 END;
 $$;
 
+	-- per trigger - un concerto deve avere almeno un ingaggio collegato
+CREATE OR REPLACE FUNCTION Check_Ingaggio_Concerto()
+	RETURNS TRIGGER
+	LANGUAGE PLPGSQL
+AS $$
+BEGIN
+	IF NOT EXISTS (
+	    SELECT artista
+	    FROM Ingaggio_Artista
+	    WHERE data = NEW.data_concerto AND
+		  ora = NEW.ora_concerto AND
+		  nome_ambiente = NEW.nome_ambiente AND
+		  indirizzo = NEW.indirizzo_ambiente AND
+		  nome_citta = NEW.nome_citta AND
+		  cap_citta = NEW.cap_citta
+	) AND NOT EXISTS (
+	    SELECT gruppo
+	    FROM Ingaggio_Gruppo
+	    WHERE data = NEW.data_concerto AND
+		  ora = NEW.ora_concerto AND
+		  nome_ambiente = NEW.nome_ambiente AND
+		  indirizzo = NEW.indirizzo_ambiente AND
+		  nome_citta = NEW.nome_citta AND
+		  cap_citta = NEW.cap_citta
+	) THEN
+		RAISE EXCEPTION 'Concerto must have at least one Ingaggio_* ';
+	END IF;
+	RETURN NEW;
+END;
+$$;
 
 -- Tipi di dato
 CREATE TYPE metodo_di_pagamento AS ENUM (
@@ -182,16 +215,18 @@ CREATE TABLE Concerto (
 	nome VARCHAR(200) NOT NULL, -- non fa parte della primary key perchè la chiave è già univoca		indice? forse poco utile
 	numero_biglietti_venduti INTEGER NOT NULL,
 	prezzo REAL NOT NULL CHECK(prezzo >= 0), -- un concerto potrebbe essere gratuito
-	data_ora TIMESTAMP,
+	data DATE,
+	ora TIME,
 	-- ambiente
 	indirizzo VARCHAR(50),
 	nome_ambiente VARCHAR(200),
 	-- città
 	nome_citta VARCHAR(50),
 	cap_citta CHAR(5),
+
 	genere TEXT REFERENCES Genere (nome) ON UPDATE CASCADE ON DELETE RESTRICT,
 
-	PRIMARY KEY (data_ora, nome_ambiente, indirizzo, nome_citta, cap_citta),
+	PRIMARY KEY (data, ora, nome_ambiente, indirizzo, nome_citta, cap_citta),
 	FOREIGN KEY (nome_ambiente, indirizzo) REFERENCES Ambiente(nome, indirizzo) ON UPDATE CASCADE ON DELETE RESTRICT,
 	FOREIGN KEY (nome_citta, cap_citta) REFERENCES Citta(nome, CAP) ON UPDATE CASCADE ON DELETE RESTRICT
 );
@@ -202,20 +237,23 @@ CREATE TABLE Biglietto (
 	proprietario CHAR(16) NOT NULL REFERENCES Persona (CF) ON UPDATE CASCADE ON DELETE RESTRICT,
 
 	data_vendita TIMESTAMP NOT NULL,	-- indice?
-	data_ora_concerto TIMESTAMP NOT NULL,
+	data_concerto DATE NOT NULL,
+	ora_concerto TIME NOT NULL,
 	nome_ambiente VARCHAR(200) NOT NULL,
 	indirizzo_ambiente VARCHAR(50) NOT NULL,
 	nome_citta VARCHAR(50) NOT NULL,
 	cap_citta CHAR(5),
 
 	FOREIGN KEY (
-		data_ora_concerto,
+		data_concerto,
+		ora_concerto,
 		nome_ambiente,
 		indirizzo_ambiente,
 		nome_citta,
 		cap_citta
 	) REFERENCES Concerto(
-		data_ora,
+		data,
+		ora,
 		nome_ambiente,
 		indirizzo,
 		nome_citta,
@@ -240,7 +278,8 @@ CREATE TABLE Gruppo (
 
 CREATE TABLE Ingaggio_Artista (
 	-- concerto
-	data_ora_concerto TIMESTAMP NOT NULL,
+	data_concerto DATE NOT NULL,
+	ora_concerto TIME NOT NULL,
 	nome_ambiente VARCHAR(200) NOT NULL,
 	indirizzo_ambiente VARCHAR(50) NOT NULL,
 	nome_citta VARCHAR(50) NOT NULL,
@@ -248,20 +287,20 @@ CREATE TABLE Ingaggio_Artista (
 
 	artista VARCHAR(50) REFERENCES Artista (nome_arte) ON UPDATE CASCADE ON DELETE RESTRICT,
 
-	UNIQUE (data_ora_concerto, artista) -- vincolo una sola esibizione al giorno (sulla data non su anche l'ora) !!!
-	-- da mettere anche in Ingaggio_Gruppo
-	-- ho visto che forse serve un indice
+	UNIQUE (data_concerto, artista)
 
-	PRIMARY KEY (data_vendita, data_ora_concerto, nome_ambiente, indirizzo_ambiente, nome_citta, cap_citta, artista),
+	PRIMARY KEY (data_vendita, data_concerto, ora_concerto, nome_ambiente, indirizzo_ambiente, nome_citta, cap_citta, artista),
 
 	FOREIGN KEY (
-		data_ora_concerto,
+		data_concerto,
+		ora_concerto,
 		nome_ambiente,
 		indirizzo_ambiente,
 		nome_citta,
 		cap_citta
 	) REFERENCES Concerto(
-		data_ora,
+		data,
+		ora,
 		nome_ambiente,
 		indirizzo,
 		nome_citta,
@@ -271,7 +310,8 @@ CREATE TABLE Ingaggio_Artista (
 
 CREATE TABLE Ingaggio_Gruppo (
 	-- concerto
-	data_ora_concerto TIMESTAMP NOT NULL,
+	data_concerto DATE NOT NULL,
+	ora_concerto TIME NOT NULL,
 	nome_ambiente VARCHAR(200) NOT NULL,
 	indirizzo_ambiente VARCHAR(50) NOT NULL,
 	nome_citta VARCHAR(50) NOT NULL,
@@ -279,16 +319,20 @@ CREATE TABLE Ingaggio_Gruppo (
 
 	gruppo VARCHAR(50) REFERENCES Gruppo (nome_arte) ON UPDATE CASCADE ON DELETE RESTRICT,
 
-	PRIMARY KEY (data_vendita, data_ora_concerto, nome_ambiente, indirizzo_ambiente, nome_citta, cap_citta, gruppo),
+	UNIQUE (data_concerto, gruppo)
+
+	PRIMARY KEY (data_vendita, data_concerto, ora_concerto, nome_ambiente, indirizzo_ambiente, nome_citta, cap_citta, gruppo),
 
 	FOREIGN KEY (
-		data_ora_concerto,
+		data_concerto,
+		ora_concerto,
 		nome_ambiente,
 		indirizzo_ambiente,
 		nome_citta,
 		cap_citta
 	) REFERENCES Concerto(
-		data_ora,
+		data,
+		ora,
 		nome_ambiente,
 		indirizzo,
 		nome_citta,
@@ -322,9 +366,13 @@ CREATE TRIGGER Unique_Nome_Gruppo_Insert
 	EXECUTE FUNCTION Check_Unique_Nome_Gruppo();
 
 	-- esistenza di sole persone con almeno un biglietto
-	-- però se esiste questo deve esserci anche il trigger che ogni persona inserita deve avere un biglietto
-	-- tecnicamente parlando però non è possibile. Per creare un biglietto serve una persona, ma non può essere creata finchè non c'è un biglietto
+	-- a livello di transazione è necessario impostare il constraint deferred
 CREATE TRIGGER Persona_ha_Biglietto
+	AFTER INSERT ON Persona
+	FOR EACH ROW
+	EXECUTE FUNCTION Check_Persona_Biglietto();
+-- TODO : finire
+CREATE TRIGGER Persona_Zombie
 	AFTER DELETE ON Biglietto
 	FOR EACH ROW
 	EXECUTE FUNCTION Delete_Zombie_Persona();
@@ -351,3 +399,8 @@ CREATE TRIGGER Cancellazione_Biglietto
 	AFTER DELETE ON Biglietto
 	FOR EACH ROW
 	EXECUTE FUNCTION Numero_Biglietti_Venduti_Dec();
+
+CREATE TRIGGER Ingaggio_Concerto
+	BEFORE INSERT ON Concerto
+	FOR EACH ROW
+	EXECUTE FUNCTION Check_Ingaggio_Concerto();
