@@ -147,19 +147,19 @@ BEGIN
 	IF NOT EXISTS (
 	    SELECT artista
 	    FROM Ingaggio_Artista
-	    WHERE data_concerto = NEW.data_concerto AND
-		  ora_concerto = NEW.ora_concerto AND
+	    WHERE data_concerto = NEW.data AND
+		  ora_concerto = NEW.ora AND
 		  nome_ambiente = NEW.nome_ambiente AND
-		  indirizzo_ambiente = NEW.indirizzo_ambiente AND
+		  indirizzo_ambiente = NEW.indirizzo AND
 		  nome_citta = NEW.nome_citta AND
 		  cap_citta = NEW.cap_citta
 	) AND NOT EXISTS (
 	    SELECT gruppo
 	    FROM Ingaggio_Gruppo
-	    WHERE data_concerto = NEW.data_concerto AND
-		  ora_concerto = NEW.ora_concerto AND
+	    WHERE data_concerto = NEW.data AND
+		  ora_concerto = NEW.ora AND
 		  nome_ambiente = NEW.nome_ambiente AND
-		  indirizzo_ambiente = NEW.indirizzo_ambiente AND
+		  indirizzo_ambiente = NEW.indirizzo AND
 		  nome_citta = NEW.nome_citta AND
 		  cap_citta = NEW.cap_citta
 	) THEN
@@ -203,7 +203,7 @@ CREATE TABLE Citta (
 
 CREATE TABLE Ambiente (
 	nome VARCHAR(50),
-	indirizzo VARCHAR(50),
+	indirizzo VARCHAR(200),
 	nome_citta VARCHAR(50),
 	cap_citta CHAR(5),
 	numero_posti_massimo INTEGER NOT NULL CHECK(numero_posti_massimo > 0),		-- condidato indice : es. tutti i concerti con almeno 100 posti
@@ -218,8 +218,8 @@ CREATE TABLE Concerto (
 	data DATE,
 	ora TIME,
 	-- ambiente
-	indirizzo VARCHAR(50),
-	nome_ambiente VARCHAR(200),
+    nome_ambiente VARCHAR(50),
+	indirizzo VARCHAR(200),
 	-- città
 	nome_citta VARCHAR(50),
 	cap_citta CHAR(5),
@@ -227,8 +227,7 @@ CREATE TABLE Concerto (
 	genere TEXT REFERENCES Genere (nome) ON UPDATE CASCADE ON DELETE RESTRICT,
 
 	PRIMARY KEY (data, ora, nome_ambiente, indirizzo, nome_citta, cap_citta),
-	FOREIGN KEY (nome_ambiente, indirizzo) REFERENCES Ambiente(nome, indirizzo) ON UPDATE CASCADE ON DELETE RESTRICT,
-	FOREIGN KEY (nome_citta, cap_citta) REFERENCES Citta(nome, CAP) ON UPDATE CASCADE ON DELETE RESTRICT
+	FOREIGN KEY (nome_ambiente, indirizzo, nome_citta, cap_citta) REFERENCES Ambiente(nome, indirizzo, nome_citta, cap_citta) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
 CREATE TABLE Biglietto (
@@ -367,11 +366,12 @@ CREATE TRIGGER Unique_Nome_Gruppo_Insert
 
 	-- esistenza di sole persone con almeno un biglietto
 	-- a livello di transazione è necessario impostare il constraint deferred
+-- TODO : finire
 CREATE TRIGGER Persona_ha_Biglietto
 	AFTER INSERT ON Persona
 	FOR EACH ROW
 	EXECUTE FUNCTION Check_Persona_Biglietto();
--- TODO : finire
+
 CREATE TRIGGER Persona_Zombie
 	AFTER DELETE ON Biglietto
 	FOR EACH ROW
