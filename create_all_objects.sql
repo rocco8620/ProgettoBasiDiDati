@@ -1,18 +1,15 @@
 CREATE DATABASE ProgettoBasiDiDati;
 
 -- TODO
---	- Vincolo per ciclo???
---	- DONE - Vincolo almeno un ingaggio per concerto --> altrimenti non può esistere
---	- DONE - Vincolo uno stesso artista/gruppo può partecipare al più ad un concerto nella stessa data
---	- CHECK - Vincolo diritto prevendita --> storico? Come mantengo l'informazione che in passato un agenzia aveva un diritto che oggi non ha più
+--					- Vincolo per ciclo???
+--	- DONE 			- Vincolo almeno un ingaggio per concerto --> altrimenti non può esistere
+--	- DONE 			- Vincolo uno stesso artista/gruppo può partecipare al più ad un concerto nella stessa data
+--	- DUSCUSSION 	- Vincolo diritto prevendita --> storico? Come mantengo l'informazione che in passato un agenzia aveva un diritto che oggi non ha più
 --			A logica non dovrebbe mai capitare, comunque 		GUARDARE AVANTI
--- 	- fare trigger per edge cases (update di concerto) (anche relativo al ciclo) genere, ambiente
---	- DONE - Decidere gestione attributo derivato (numero posti venduti)
---	- REJECTED - Partizionamento della tabella Biglietto in base ad Agenzia
---
-
--- DOMANDE
---	- Ci sono tanti vincoli per la tabella Biglietto, si fanno tanti trigger o uno solo che li controlla tutti?
+-- 	- DISCUSSION 	- fare trigger per edge cases (update di concerto) (anche relativo al ciclo) genere, ambiente
+--	- DONE 			- Decidere gestione attributo derivato (numero posti venduti)
+--	 				- Vincolo che se esiste un gruppo, deve esserci collegato almeno due artisti
+--	- REJECTED 		- Partizionamento della tabella Biglietto in base ad Agenzia
 --
 
 
@@ -43,6 +40,18 @@ END;
 $$;
 
 	-- per trigger - persona almeno un biglietto
+CREATE OR REPLACE FUNCTION Check_Persona_Biglietto()
+	RETURNS TRIGGER
+	LANGUAGE PLPGSQL
+AS $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM Biglietto WHERE proprietario = NEW.CF) THEN
+		RAISE EXCEPTION 'No Biglietto for %s Persona', NEW.CF;
+	END IF;
+	RETURN NEW;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION Delete_Zombie_Persona()
 	RETURNS TRIGGER
 	LANGUAGE PLPGSQL
@@ -61,16 +70,7 @@ CREATE OR REPLACE FUNCTION Check_Limite_Posti_Disponibili()
 	LANGUAGE PLPGSQL
 AS $$
 BEGIN
-	IF 1 + (
-	    SELECT numero_biglietti_venduti
-	    FROM Concerto
-	    WHERE data = NEW.data_concerto AND
-		  ora = NEW.ora_concerto AND
-		  nome_ambiente = NEW.nome_ambiente AND
-		  indirizzo = NEW.indirizzo_ambiente AND
-		  nome_citta = NEW.nome_citta AND
-		  cap_citta = NEW.cap_citta
-        ) > (
+	IF NEW.numero_posti > (
 	    SELECT numero_posti_massimo
 	    FROM Ambiente
 	    WHERE nome = NEW.nome_ambiente AND
@@ -78,7 +78,7 @@ BEGIN
 		  nome_citta = NEW.nome_citta AND
 		  cap_citta = NEW.cap_citta
 	) THEN
-		RAISE EXCEPTION 'Not available seats';
+		RAISE EXCEPTION 'Number of seats exceeds the maximum declared Ambiente';
 	END IF;
 	RETURN NEW;
 END;
@@ -169,6 +169,7 @@ BEGIN
 END;
 $$;
 
+
 -- Tipi di dato
 CREATE TYPE metodo_di_pagamento AS ENUM (
 	'contanti',
@@ -213,12 +214,13 @@ CREATE TABLE Ambiente (
 
 CREATE TABLE Concerto (
 	nome VARCHAR(200) NOT NULL, -- non fa parte della primary key perchè la chiave è già univoca		indice? forse poco utile
-	numero_biglietti_venduti INTEGER NOT NULL,
-	prezzo REAL NOT NULL CHECK(prezzo >= 0), -- un concerto potrebbe essere gratuito
+	numero_posti INTEGER NOT NULL CHECK (numero_posti > 0), -- un concerto ha almeno un posto disponibile
+	numero_biglietti_venduti INTEGER NOT NULL CHECK (numero_biglietti_venduti >= 0 AND numero_biglietti_venduti <= numero_posti) DEFAULT 0,
+	prezzo REAL NOT NULL CHECK (prezzo >= 0), -- un concerto potrebbe essere gratuito
 	data DATE,
 	ora TIME,
 	-- ambiente
-    nome_ambiente VARCHAR(50),
+	nome_ambiente VARCHAR(50),
 	indirizzo VARCHAR(200),
 	-- città
 	nome_citta VARCHAR(50),
@@ -341,6 +343,7 @@ CREATE TABLE Ingaggio_Gruppo (
 
 
 -- Trigger
+------------------------------ Artista/Gruppo ------------------------------
 	-- unicità del 'nome_arte'
 CREATE TRIGGER Unique_Nome_Artista_Update
 	BEFORE UPDATE ON Artista
@@ -364,11 +367,18 @@ CREATE TRIGGER Unique_Nome_Gruppo_Insert
 	FOR EACH ROW
 	EXECUTE FUNCTION Check_Unique_Nome_Gruppo();
 
+------------------------------ Biglietto ------------------------------
+	-- l'agenzia ha diritto di prevendita per vendere il biglietto?
+CREATE TRIGGER Agenzia_ha_Diritto_Prevendita
+	BEFORE INSERT ON Biglietto
+	FOR EACH ROW
+	EXECUTE FUNCTION Check_Diritto_Prevendita_Agenzia();
+
 	-- esistenza di sole persone con almeno un biglietto
 	-- a livello di transazione è necessario impostare il constraint deferred
--- TODO : finire
 CREATE TRIGGER Persona_ha_Biglietto
 	AFTER INSERT ON Persona
+	DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION Check_Persona_Biglietto();
 
@@ -377,17 +387,18 @@ CREATE TRIGGER Persona_Zombie
 	FOR EACH ROW
 	EXECUTE FUNCTION Delete_Zombie_Persona();
 
-	-- biglietti venduti < biglietti massimi ambiente
+------------------------------ Concerto ------------------------------
+	-- un concerto deve avere almeno una esibizione (ingaggio)
+CREATE TRIGGER Ingaggio_Concerto
+	BEFORE INSERT ON Concerto
+	FOR EACH ROW
+	EXECUTE FUNCTION Check_Ingaggio_Concerto();
+
+	-- numero posti concerto < posti massimi ambiente
 CREATE TRIGGER Limite_Biglietti
-	BEFORE INSERT ON Biglietto
+	BEFORE INSERT ON Concerto
 	FOR EACH ROW
 	EXECUTE FUNCTION Check_Limite_Posti_Disponibili();
-
-	-- l'agenzia ha diritto di prevendita per vendere il biglietto?
-CREATE TRIGGER Agenzia_ha_Diritto_Prevendita
-	BEFORE INSERT ON Biglietto
-	FOR EACH ROW
-	EXECUTE FUNCTION Check_Diritto_Prevendita_Agenzia();
 
 	-- gestione attributo derivato (biglietti venduti)
 CREATE TRIGGER Nuovo_Biglietto
@@ -400,7 +411,7 @@ CREATE TRIGGER Cancellazione_Biglietto
 	FOR EACH ROW
 	EXECUTE FUNCTION Numero_Biglietti_Venduti_Dec();
 
-CREATE TRIGGER Ingaggio_Concerto
-	BEFORE INSERT ON Concerto
-	FOR EACH ROW
-	EXECUTE FUNCTION Check_Ingaggio_Concerto();
+	-- Trigger edge cases
+		-- modifica genere concerto --> bloccare se esistono agenzie senza quel nuovo genere o in generale se sono già stati venduti biglietti?
+		-- modifica numero posti concerto --> bloccare se < di biglietti venduti?
+		-- modifica numero posti massimi ambiente --> bloccare se < di numero posti concerto?

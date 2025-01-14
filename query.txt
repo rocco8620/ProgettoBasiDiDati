@@ -1,0 +1,30 @@
+Domande:
+-- Lo schema ER risulta troppo semplice? Bisogna mettere lo storico a qualcosa?
+-- QUALI TRIGGER TENERE DI QUELLI FATTI? Devono essercene 2-3 ed è necessario consultare il professore per la decisione. Valutare anche le due per gli edge cases scritte alla fine dell'SQL
+
+Query:
+INSERT
+- Inserimento Biglietto (con Persona relativa)
+- Inserimento Concerto
+
+UPDATE o DELETE
+- Cancellazione Biglietto
+- Cancellazione Concerto (per dimostrare l'uso delle trigger --> atteso: errore)
+- Aggiornamento di una delle seguenti (genere, nome arte artista, concerto (edge cases), indirizzo ambiente)
+
+Da testo
+- DA TESTO -- stabilire quanti biglietti sono stati venduti da un'agenzia per un concerto
+- DA TESTO -- stabilire il numero di biglietti venduti e mancanti
+- DA TESTO cito: "bisogna poter stabilire per ogni ambiente quanti biglietti sono stati venduti per un determinato concerto di un dato solista/gruppo musicale" >>
+	dato un ambiente e un artista/gruppo stabilire quanti biglietti sono stati venduti, oppure viene dato anche il concerto?
+
+Altro
+- Percentuale di agenzie (con diritto di prevendita disponibile) che hanno effettivamente venduto almeno un biglietto per un dato concerto.
+- Città in cui si è esibito un artista (da solista o da componente di un gruppo)
+
+Query per analisi:
+- Genere più partecipato (per ogni concerto si calcola la percentuale di biglietti venduti rispetto al totale e si prende il genere con le cifre migliori).
+  Con cifre si può indendere media, mediana, deviazione standard, etc.
+- Correlazione tra numero di biglietti totali venduti per singola agenzia e artista che si esibisce
+- Correlazione tra numero di posti disponibili nel concerto e numero di esibizioni
+- Distribuzione numero concerti per persona 
